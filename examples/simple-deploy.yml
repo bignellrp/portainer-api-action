@@ -1,0 +1,20 @@
+name: Simple Deploy Example
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Portainer
+        uses: bignellrp/portainer-api-action@v1
+        with:
+          portainer_url: ${{ secrets.PORTAINER_URL }}
+          portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
+          stack_name: my-stack
+          stack_file: docker-compose.yml

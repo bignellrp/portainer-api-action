@@ -1,0 +1,36 @@
+name: Multi-Stack Deploy Example
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-all:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stack:
+          - name: frontend
+            file: frontend/docker-compose.yml
+            endpoint: 1
+          - name: backend
+            file: backend/docker-compose.yml
+            endpoint: 1
+          - name: database
+            file: database/docker-compose.yml
+            endpoint: 2
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy ${{ matrix.stack.name }} to Portainer
+        uses: bignellrp/portainer-api-action@v1
+        with:
+          portainer_url: ${{ secrets.PORTAINER_URL }}
+          portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
+          stack_name: ${{ matrix.stack.name }}
+          stack_file: ${{ matrix.stack.file }}
+          endpoint_id: ${{ matrix.stack.endpoint }}
+          action: update
