@@ -239,7 +239,7 @@ If the stack doesn't exist, the action will automatically create it. Make sure:
 
 ## API Compatibility
 
-This action is compatible with Portainer API v2.0 and above.
+This action is compatible with Portainer CE and Portainer BE version 2.0 and above, which includes the v2.0+ API.
 
 ## Contributing
 
