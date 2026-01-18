@@ -53,7 +53,7 @@ runs:
       shell: bash
       run: |
         echo "::group::Portainer API Deployment"
-        
+
         # Set variables
         PORTAINER_URL="${{ inputs.portainer_url }}"
         PORTAINER_API_KEY="${{ inputs.portainer_api_key }}"
@@ -63,35 +63,35 @@ runs:
         ACTION="${{ inputs.action }}"
         ENV_VARS='${{ inputs.env_vars }}'
         PRUNE="${{ inputs.prune }}"
-        
+
         # Remove trailing slash from URL
         PORTAINER_URL="${PORTAINER_URL%/}"
-        
+
         echo "Portainer URL: $PORTAINER_URL"
         echo "Stack Name: $STACK_NAME"
         echo "Stack File: $STACK_FILE"
         echo "Endpoint ID: $ENDPOINT_ID"
         echo "Action: $ACTION"
-        
+
         # Validate stack file exists
         if [ ! -f "$STACK_FILE" ]; then
           echo "::error::Stack file not found: $STACK_FILE"
           exit 1
         fi
-        
+
         # Read stack file content
         STACK_CONTENT=$(cat "$STACK_FILE")
-        
+
         # Check if stack exists
         echo "Checking if stack exists..."
         STACKS_RESPONSE=$(curl -s -H "X-API-Key: $PORTAINER_API_KEY" \
           "$PORTAINER_URL/api/stacks")
-        
+
         STACK_ID=$(echo "$STACKS_RESPONSE" | grep -o "\"Id\":[0-9]*,\"Name\":\"$STACK_NAME\"" | grep -o "\"Id\":[0-9]*" | cut -d: -f2 || echo "")
-        
+
         if [ -z "$STACK_ID" ]; then
           echo "Stack does not exist. Creating new stack..."
-          
+
           # Create payload for new stack
           PAYLOAD=$(jq -n \
             --arg name "$STACK_NAME" \
@@ -103,35 +103,35 @@ runs:
               StackFileContent: $content,
               Env: ($env | to_entries | map({name: .key, value: .value}))
             }')
-          
+
           # Create stack
           CREATE_RESPONSE=$(curl -s -X POST \
             -H "X-API-Key: $PORTAINER_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
             "$PORTAINER_URL/api/stacks/create/swarm/string?endpointId=$ENDPOINT_ID")
-          
+
           STACK_ID=$(echo "$CREATE_RESPONSE" | grep -o '"Id":[0-9]*' | head -1 | cut -d: -f2)
-          
+
           if [ -z "$STACK_ID" ]; then
             echo "::error::Failed to create stack. Response: $CREATE_RESPONSE"
             exit 1
           fi
-          
+
           echo "Stack created successfully with ID: $STACK_ID"
           echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
           echo "status=created" >> $GITHUB_OUTPUT
-          
+
         else
           echo "Stack exists with ID: $STACK_ID"
-          
+
           if [ "$ACTION" = "redeploy" ]; then
             echo "Redeploying stack..."
-            
+
             # Get current stack details
             STACK_DETAILS=$(curl -s -H "X-API-Key: $PORTAINER_API_KEY" \
               "$PORTAINER_URL/api/stacks/$STACK_ID")
-            
+
             # Update stack
             PAYLOAD=$(jq -n \
               --arg content "$STACK_CONTENT" \
@@ -143,13 +143,13 @@ runs:
                 Prune: $prune,
                 PullImage: true
               }')
-            
+
             UPDATE_RESPONSE=$(curl -s -X PUT \
               -H "X-API-Key: $PORTAINER_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" \
               "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID")
-            
+
             if echo "$UPDATE_RESPONSE" | grep -q '"Id"'; then
               echo "Stack redeployed successfully"
               echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
@@ -158,10 +158,10 @@ runs:
               echo "::error::Failed to redeploy stack. Response: $UPDATE_RESPONSE"
               exit 1
             fi
-            
+
           else
             echo "Updating stack..."
-            
+
             PAYLOAD=$(jq -n \
               --arg content "$STACK_CONTENT" \
               --argjson env "$ENV_VARS" \
@@ -171,13 +171,13 @@ runs:
                 Env: ($env | to_entries | map({name: .key, value: .value})),
                 Prune: $prune
               }')
-            
+
             UPDATE_RESPONSE=$(curl -s -X PUT \
               -H "X-API-Key: $PORTAINER_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" \
               "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID")
-            
+
             if echo "$UPDATE_RESPONSE" | grep -q '"Id"'; then
               echo "Stack updated successfully"
               echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
@@ -188,5 +188,5 @@ runs:
             fi
           fi
         fi
-        
+
         echo "::endgroup::"

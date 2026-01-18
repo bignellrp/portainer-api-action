@@ -20,7 +20,7 @@ jobs:
           - name: database
             file: database/docker-compose.yml
             endpoint: 2
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
