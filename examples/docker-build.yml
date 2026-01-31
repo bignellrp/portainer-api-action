@@ -12,8 +12,10 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       - name: Build, Tag and Push Docker Image to GHCR
         uses: GlueOps/github-actions-build-push-containers@v0.1.3
@@ -31,11 +33,6 @@ jobs:
       - name: Sleep for 10 seconds
         run: sleep 10s
         shell: bash
-
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
 
       - name: Deploy to Portainer
         uses: bignellrp/portainer-api-action@v1

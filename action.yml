@@ -24,7 +24,11 @@ inputs:
   endpoint_id:
     description: 'Portainer endpoint ID'
     required: false
-    default: '1'
+    default: '2'
+  stack_type:
+    description: 'Portainer stack type (2 = Compose, 1 = Swarm)'
+    required: false
+    default: '2'
   action:
     description: 'Action to perform: deploy, update, or redeploy'
     required: false
@@ -37,6 +41,14 @@ inputs:
     description: 'Prune services not defined in the stack file'
     required: false
     default: 'true'
+  x_registry_auth:
+    description: 'Optional X-Registry-Auth header value (base64). Useful for private registries.'
+    required: false
+    default: ''
+  registry_match:
+    description: 'Optional regex to auto-select a Portainer registry (matches Name or URL). Sets X-Registry-Auth if found.'
+    required: false
+    default: ''
 
 outputs:
   stack_id:
@@ -60,18 +72,16 @@ runs:
           local url="$2"
           local payload="${3-}"
 
-          local response
-          if [ -n "${payload}" ]; then
-            response=$(curl -sS -w "\n%{http_code}" -X "$method" \
-              -H "X-API-Key: $PORTAINER_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$payload" \
-              "$url")
-          else
-            response=$(curl -sS -w "\n%{http_code}" -X "$method" \
-              -H "X-API-Key: $PORTAINER_API_KEY" \
-              "$url")
+          local curl_args=(-sS -w "\n%{http_code}" -X "$method" -H "X-API-Key: $PORTAINER_API_KEY")
+          if [ -n "${X_REGISTRY_AUTH:-}" ]; then
+            curl_args+=(-H "X-Registry-Auth: $X_REGISTRY_AUTH")
           fi
+          if [ -n "${payload}" ]; then
+            curl_args+=(-H "Content-Type: application/json" -d "$payload")
+          fi
+
+          local response
+          response=$(curl "${curl_args[@]}" "$url")
 
           local body="${response%$'\n'*}"
           local code="${response##*$'\n'}"
@@ -100,17 +110,42 @@ runs:
         STACK_NAME="${{ inputs.stack_name }}"
         STACK_FILE="${{ inputs.stack_file }}"
         ENDPOINT_ID="${{ inputs.endpoint_id }}"
+        STACK_TYPE="${{ inputs.stack_type }}"
         ACTION="${{ inputs.action }}"
         ENV_VARS='${{ inputs.env_vars }}'
         PRUNE="${{ inputs.prune }}"
+        X_REGISTRY_AUTH_INPUT="${{ inputs.x_registry_auth }}"
+        REGISTRY_MATCH="${{ inputs.registry_match }}"
 
-        # Remove trailing slash from URL
-        PORTAINER_URL="${PORTAINER_URL%/}"
+        # Normalize URL to a base Portainer URL (tolerate full API URLs too)
+        # Examples:
+        # - https://portainer.example.com
+        # - https://portainer.example.com/api/stacks?type=1
+        base="${PORTAINER_URL%%\?*}"
+        base="${base%/}"
+        base="${base%%/api/*}"
+        base="${base%%/api}"
+        PORTAINER_URL="$base"
 
         echo "Stack Name: $STACK_NAME"
         echo "Stack File: $STACK_FILE"
         echo "Endpoint ID: $ENDPOINT_ID"
+        echo "Stack Type: $STACK_TYPE"
         echo "Action: $ACTION"
+
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::error::jq is required but was not found on PATH. Install jq in your workflow (e.g. apt-get install -y jq)."
+          exit 1
+        fi
+
+        if ! echo "$ENV_VARS" | jq -e . >/dev/null 2>&1; then
+          echo "::error::env_vars must be valid JSON"
+          exit 1
+        fi
+        if [ "$(echo "$ENV_VARS" | jq -r 'type')" != "object" ]; then
+          echo "::error::env_vars must be a JSON object (e.g. {\"KEY\":\"value\"})"
+          exit 1
+        fi
 
         # Validate stack file exists
         if [ ! -f "$STACK_FILE" ]; then
@@ -121,11 +156,40 @@ runs:
         # Read stack file content
         STACK_CONTENT=$(cat "$STACK_FILE")
 
+        if [ "$ACTION" = "redeploy" ]; then
+          redeploy_token="${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}-$(date +%s)"
+          ENV_VARS=$(echo "$ENV_VARS" | jq -c --arg v "$redeploy_token" '. + {REDEPLOY_TS: $v}')
+        fi
+
+        # Optional registry auth for private registries
+        X_REGISTRY_AUTH="${X_REGISTRY_AUTH_INPUT}"
+        if [ -z "${X_REGISTRY_AUTH}" ] && [ -n "${REGISTRY_MATCH}" ]; then
+          echo "Looking up registry matching: ${REGISTRY_MATCH}"
+          REGISTRIES_RESPONSE=$(request_json GET "$PORTAINER_URL/api/registries") || exit $?
+          REGISTRY_ID=$(echo "$REGISTRIES_RESPONSE" | jq -r --arg re "$REGISTRY_MATCH" '
+            map(select((.URL // "" | test($re)) or (.Name // "" | test($re))))
+            | (.[0].Id // .[0].ID // empty)
+          ')
+
+          if [ -n "${REGISTRY_ID}" ]; then
+            X_REGISTRY_AUTH=$(printf '{"registryId":%s}' "$REGISTRY_ID" | base64 | tr -d '\n')
+            echo "Using registryId=$REGISTRY_ID for X-Registry-Auth"
+          else
+            echo "No matching registry found in Portainer; proceeding without X-Registry-Auth"
+          fi
+        fi
+
         # Check if stack exists
         echo "Checking if stack exists..."
-        STACKS_RESPONSE=$(request_json GET "$PORTAINER_URL/api/stacks")
+        STACKS_RESPONSE=$(request_json GET "$PORTAINER_URL/api/stacks") || exit $?
 
-        STACK_ID=$(echo "$STACKS_RESPONSE" | jq -r ".[] | select(.Name == \"$STACK_NAME\") | .Id // empty")
+        STACK_ID=$(echo "$STACKS_RESPONSE" | jq -r \
+          --arg name "$STACK_NAME" \
+          --argjson endpoint "$ENDPOINT_ID" \
+          '.[]
+            | select(.Name == $name and ((.EndpointId // .EndpointID) == $endpoint))
+            | (.Id // .ID // empty)' \
+          | head -n 1)
 
         if [ -z "$STACK_ID" ]; then
           echo "Stack does not exist. Creating new stack..."
@@ -134,7 +198,6 @@ runs:
           PAYLOAD=$(jq -n \
             --arg name "$STACK_NAME" \
             --arg content "$STACK_CONTENT" \
-            --argjson endpoint "$ENDPOINT_ID" \
             --argjson env "$ENV_VARS" \
             '{
               Name: $name,
@@ -143,7 +206,7 @@ runs:
             }')
 
           # Create stack
-          CREATE_RESPONSE=$(request_json POST "$PORTAINER_URL/api/stacks/create/swarm/string?endpointId=$ENDPOINT_ID" "$PAYLOAD")
+          CREATE_RESPONSE=$(request_json POST "$PORTAINER_URL/api/stacks?type=$STACK_TYPE&method=string&endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
 
           STACK_ID=$(echo "$CREATE_RESPONSE" | jq -r '.Id // empty')
 
@@ -168,19 +231,13 @@ runs:
               --argjson env "$ENV_VARS" \
               --argjson prune "$PRUNE" \
               '{
-                StackFileContent: $content,
-                Env: ($env | to_entries | map({name: .key, value: .value})),
-                Prune: $prune,
-                PullImage: true
+                stackFileContent: $content,
+                env: ($env | to_entries | map({name: .key, value: .value})),
+                prune: $prune,
+                pullImage: true
               }')
 
-            UPDATE_RESPONSE=$(curl -sf -X PUT \
-              -H "X-API-Key: $PORTAINER_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD" \
-              "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" 2>/dev/null)
-
-            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD")
+            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
 
             UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
             if [ -n "$UPDATED_ID" ]; then
@@ -200,18 +257,12 @@ runs:
               --argjson env "$ENV_VARS" \
               --argjson prune "$PRUNE" \
               '{
-                StackFileContent: $content,
-                Env: ($env | to_entries | map({name: .key, value: .value})),
-                Prune: $prune
+                stackFileContent: $content,
+                env: ($env | to_entries | map({name: .key, value: .value})),
+                prune: $prune
               }')
 
-            UPDATE_RESPONSE=$(curl -sf -X PUT \
-              -H "X-API-Key: $PORTAINER_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD" \
-              "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" 2>/dev/null)
-
-            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD")
+            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
 
             UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
             if [ -n "$UPDATED_ID" ]; then

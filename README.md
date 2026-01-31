@@ -9,14 +9,14 @@ A reusable GitHub Action to deploy and manage Docker stacks via the Portainer AP
 - 🔁 Redeploy stacks with image pulls
 - 🌍 Support for environment variables
 - 🧹 Optional service pruning
-- 📦 Works with Docker Swarm stacks
+- 📦 Works with Portainer stacks (Compose by default)
 
 ## Prerequisites
 
 - A running Portainer instance (v2.0+)
 - Portainer API access token
 - Docker Compose file defining your stack
-- A Portainer endpoint running in **Docker Swarm** mode (this action uses the Swarm stack API)
+- `jq` available on the runner (install it in your workflow if needed)
 
 ## Inputs
 
@@ -26,10 +26,13 @@ A reusable GitHub Action to deploy and manage Docker stacks via the Portainer AP
 | `portainer_api_key` | Portainer API access token | Yes | - |
 | `stack_name` | Name of the stack to deploy/update | Yes | `${GITHUB_REPOSITORY#*/}` |
 | `stack_file` | Path to docker-compose stack file | No | `docker-compose.yml` |
-| `endpoint_id` | Portainer endpoint ID | No | `1` |
+| `endpoint_id` | Portainer endpoint ID | No | `2` |
+| `stack_type` | Portainer stack type (`2` = Compose, `1` = Swarm) | No | `2` |
 | `action` | Action to perform: `deploy`, `update`, or `redeploy` | No | `redeploy` |
 | `env_vars` | Environment variables as JSON string | No | `{}` |
 | `prune` | Prune services not defined in the stack file | No | `true` |
+| `x_registry_auth` | Optional `X-Registry-Auth` header value (base64) | No | - |
+| `registry_match` | Optional regex to auto-select a Portainer registry by Name/URL (sets `X-Registry-Auth`) | No | - |
 
 Notes:
 
@@ -37,6 +40,8 @@ Notes:
 - `endpoint_id` must be a number (as used by Portainer).
 - `env_vars` must be valid JSON representing an object, e.g. `{ "KEY": "value" }`.
 - `prune` should be `true` or `false`.
+- For private registries, set either `x_registry_auth` or `registry_match` (example: `ghcr\\.io`).
+- When `action: redeploy` is used, the action injects a changing `REDEPLOY_TS` env var to force Portainer to apply the update.
 
 ## Outputs
 
@@ -222,8 +227,6 @@ If the stack doesn't exist, the action will automatically create it. Make sure:
 ## API Compatibility
 
 This action is compatible with Portainer CE and Portainer BE version 2.0 and above, which includes the v2.0+ API.
-
-It targets the **Docker Swarm stack** API endpoints.
 
 ## Contributing
 
