@@ -45,6 +45,13 @@ Notes:
 | `stack_id` | ID of the deployed/updated stack |
 | `status` | Status of the operation (`created`, `updated`, or `redeployed`) |
 
+## Versioning / Tagging
+
+This action supports both **immutable release tags** and a **moving major tag**:
+
+- Prefer pinning to an immutable release for reproducible builds: `bignellrp/portainer-api-action@v1.0.0`
+- Use the moving major tag to automatically receive compatible updates: `bignellrp/portainer-api-action@v1`
+
 ## Usage Examples
 
 This repo includes working examples you can copy:
@@ -71,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Portainer
-        uses: bignellrp/portainer-api-action@v1
+        uses: bignellrp/portainer-api-action@v1.0.0
         with:
           portainer_url: ${{ secrets.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
@@ -97,7 +104,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Portainer
-        uses: bignellrp/portainer-api-action@v1
+        uses: bignellrp/portainer-api-action@v1.0.0
         with:
           portainer_url: ${{ secrets.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
@@ -141,7 +148,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy ${{ matrix.stack.name }} to Portainer
-        uses: bignellrp/portainer-api-action@v1
+        uses: bignellrp/portainer-api-action@v1.0.0
         with:
           portainer_url: ${{ secrets.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
