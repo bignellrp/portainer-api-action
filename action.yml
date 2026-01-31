@@ -55,6 +55,45 @@ runs:
       run: |
         echo "::group::Portainer API Deployment"
 
+        request_json() {
+          local method="$1"
+          local url="$2"
+          local payload="${3-}"
+
+          local response
+          if [ -n "${payload}" ]; then
+            response=$(curl -sS -w "\n%{http_code}" -X "$method" \
+              -H "X-API-Key: $PORTAINER_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              "$url")
+          else
+            response=$(curl -sS -w "\n%{http_code}" -X "$method" \
+              -H "X-API-Key: $PORTAINER_API_KEY" \
+              "$url")
+          fi
+
+          local body="${response%$'\n'*}"
+          local code="${response##*$'\n'}"
+
+          if [ -z "$code" ] || ! echo "$code" | grep -Eq '^[0-9]{3}$'; then
+            echo "::error::Failed to parse HTTP status code from response"
+            echo "$response"
+            return 1
+          fi
+
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::error::Portainer API request failed ($method $url)"
+            echo "::error::HTTP $code"
+            if [ -n "$body" ]; then
+              echo "::error::Response body: $body"
+            fi
+            return 22
+          fi
+
+          echo "$body"
+        }
+
         # Set variables
         PORTAINER_URL="${{ inputs.portainer_url }}"
         PORTAINER_API_KEY="${{ inputs.portainer_api_key }}"
@@ -84,13 +123,7 @@ runs:
 
         # Check if stack exists
         echo "Checking if stack exists..."
-        STACKS_RESPONSE=$(curl -sf -H "X-API-Key: $PORTAINER_API_KEY" \
-          "$PORTAINER_URL/api/stacks" 2>/dev/null)
-
-        if [ $? -ne 0 ]; then
-          echo "::error::Failed to connect to Portainer API. Check URL and API key."
-          exit 1
-        fi
+        STACKS_RESPONSE=$(request_json GET "$PORTAINER_URL/api/stacks")
 
         STACK_ID=$(echo "$STACKS_RESPONSE" | jq -r ".[] | select(.Name == \"$STACK_NAME\") | .Id // empty")
 
@@ -110,16 +143,7 @@ runs:
             }')
 
           # Create stack
-          CREATE_RESPONSE=$(curl -sf -X POST \
-            -H "X-API-Key: $PORTAINER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            "$PORTAINER_URL/api/stacks/create/swarm/string?endpointId=$ENDPOINT_ID" 2>/dev/null)
-
-          if [ $? -ne 0 ]; then
-            echo "::error::Failed to create stack. API request failed."
-            exit 1
-          fi
+          CREATE_RESPONSE=$(request_json POST "$PORTAINER_URL/api/stacks/create/swarm/string?endpointId=$ENDPOINT_ID" "$PAYLOAD")
 
           STACK_ID=$(echo "$CREATE_RESPONSE" | jq -r '.Id // empty')
 
@@ -156,10 +180,7 @@ runs:
               -d "$PAYLOAD" \
               "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" 2>/dev/null)
 
-            if [ $? -ne 0 ]; then
-              echo "::error::Failed to redeploy stack. API request failed."
-              exit 1
-            fi
+            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD")
 
             UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
             if [ -n "$UPDATED_ID" ]; then
@@ -190,10 +211,7 @@ runs:
               -d "$PAYLOAD" \
               "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" 2>/dev/null)
 
-            if [ $? -ne 0 ]; then
-              echo "::error::Failed to update stack. API request failed."
-              exit 1
-            fi
+            UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD")
 
             UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
             if [ -n "$UPDATED_ID" ]; then
