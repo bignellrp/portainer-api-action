@@ -43,5 +43,5 @@ jobs:
           portainer_url: ${{ vars.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_TOKEN }}
           stack_name: ${{ github.event.repository.name }}
-          stack_file: examples/docker-compose.yml
+          stack_file: docker-compose.yml
           action: redeploy
