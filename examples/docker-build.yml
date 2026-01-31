@@ -35,7 +35,7 @@ jobs:
         shell: bash
 
       - name: Deploy to Portainer
-        uses: bignellrp/portainer-api-action@v1
+        uses: bignellrp/portainer-api-action@main
         with:
           portainer_url: ${{ vars.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_TOKEN }}
