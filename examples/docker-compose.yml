@@ -1,39 +1,16 @@
-version: '3.8'
-
 services:
   app:
-    image: ${DOCKERHUB_USERNAME}/portainer-app:${IMAGE_TAG:-latest}
-    ports:
-      - "8080:8080"
-    environment:
-      - NODE_ENV=production
-      - PORT=8080
-    deploy:
-      replicas: 2
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    image: ghcr.io/bignellrp/my-app3:latest
+    container_name: my-app3
     networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      - br1
+    ports:
+      - "2379:8000" # This must be updated before deployment
+    restart: always
+    environment:
+      - TZ=Europe/London
 
 networks:
-  app-network:
-    driver: overlay
+  br1:
+    external: true
+    name: br1

@@ -1,0 +1,47 @@
+name: Docker Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build, Tag and Push Docker Image to GHCR
+        uses: GlueOps/github-actions-build-push-containers@v0.1.3
+
+      - name: Tag and Push :latest (main branch)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "Ensuring :latest points at the newly built :main image"
+          docker pull "$image:main"
+          docker tag "$image:main" "$image:latest"
+          docker push "$image:latest"
+
+      - name: Sleep for 10 seconds
+        run: sleep 10s
+        shell: bash
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Deploy to Portainer
+        uses: bignellrp/portainer-api-action@v1
+        with:
+          portainer_url: ${{ vars.PORTAINER_URL }}
+          portainer_api_key: ${{ secrets.PORTAINER_TOKEN }}
+          stack_name: ${{ github.event.repository.name }}
+          stack_file: examples/docker-compose.yml
+          action: redeploy

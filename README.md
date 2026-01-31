@@ -16,6 +16,7 @@ A reusable GitHub Action to deploy and manage Docker stacks via the Portainer AP
 - A running Portainer instance (v2.0+)
 - Portainer API access token
 - Docker Compose file defining your stack
+- A Portainer endpoint running in **Docker Swarm** mode (this action uses the Swarm stack API)
 
 ## Inputs
 
@@ -23,12 +24,19 @@ A reusable GitHub Action to deploy and manage Docker stacks via the Portainer AP
 |-------|-------------|----------|---------|
 | `portainer_url` | Portainer instance URL (e.g., `https://portainer.example.com`) | Yes | - |
 | `portainer_api_key` | Portainer API access token | Yes | - |
-| `stack_name` | Name of the stack to deploy/update | Yes | - |
+| `stack_name` | Name of the stack to deploy/update | Yes | `${GITHUB_REPOSITORY#*/}` |
 | `stack_file` | Path to docker-compose stack file | No | `docker-compose.yml` |
 | `endpoint_id` | Portainer endpoint ID | No | `1` |
-| `action` | Action to perform: `deploy`, `update`, or `redeploy` | No | `update` |
+| `action` | Action to perform: `deploy`, `update`, or `redeploy` | No | `redeploy` |
 | `env_vars` | Environment variables as JSON string | No | `{}` |
 | `prune` | Prune services not defined in the stack file | No | `true` |
+
+Notes:
+
+- `stack_file` must exist in the workspace (use `actions/checkout@v4` if it’s in your repo).
+- `endpoint_id` must be a number (as used by Portainer).
+- `env_vars` must be valid JSON representing an object, e.g. `{ "KEY": "value" }`.
+- `prune` should be `true` or `false`.
 
 ## Outputs
 
@@ -38,6 +46,12 @@ A reusable GitHub Action to deploy and manage Docker stacks via the Portainer AP
 | `status` | Status of the operation (`created`, `updated`, or `redeployed`) |
 
 ## Usage Examples
+
+This repo includes working examples you can copy:
+
+- Docker build + deploy workflow: [examples/docker-build.yml](examples/docker-build.yml)
+- Example stack file: [examples/docker-compose.yml](examples/docker-compose.yml)
+- Example image used by the workflow: [examples/Dockerfile](examples/Dockerfile)
 
 ### Basic Usage
 
@@ -62,6 +76,7 @@ jobs:
           portainer_url: ${{ secrets.PORTAINER_URL }}
           portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
           stack_name: my-application
+          action: redeploy
 ```
 
 ### Advanced Usage with Environment Variables
@@ -118,48 +133,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myapp:latest
-
-      - name: Deploy to Portainer
-        uses: bignellrp/portainer-api-action@v1
-        with:
-          portainer_url: ${{ secrets.PORTAINER_URL }}
-          portainer_api_key: ${{ secrets.PORTAINER_API_KEY }}
-          stack_name: my-application
-          action: redeploy
-```
-
-### Multiple Stacks Deployment
-
-```yaml
-name: Deploy Multiple Stacks
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        stack:
-          - name: frontend
-            file: frontend/docker-compose.yml
-          - name: backend
             file: backend/docker-compose.yml
           - name: database
             file: database/docker-compose.yml
@@ -182,6 +155,8 @@ You'll need to configure the following secrets in your GitHub repository:
 
 1. **PORTAINER_URL**: Your Portainer instance URL (e.g., `https://portainer.example.com`)
 2. **PORTAINER_API_KEY**: Your Portainer API access token
+
+Tip: you can also store the URL as a repository variable (e.g., `vars.PORTAINER_URL`) and the token as a secret (e.g., `secrets.PORTAINER_TOKEN`) as shown in [examples/docker-build.yml](examples/docker-build.yml).
 
 ### How to Get Portainer API Key
 
@@ -240,6 +215,8 @@ If the stack doesn't exist, the action will automatically create it. Make sure:
 ## API Compatibility
 
 This action is compatible with Portainer CE and Portainer BE version 2.0 and above, which includes the v2.0+ API.
+
+It targets the **Docker Swarm stack** API endpoints.
 
 ## Contributing
 
