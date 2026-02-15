@@ -207,6 +207,63 @@ services:
 
 ## Troubleshooting
 
+## Manual Portainer API Probe (with 1Password)
+
+If Portainer was upgraded and this action now fails (often due to stack endpoint changes), you can confirm the **current** create/update syntax on your Portainer instance by querying its swagger and trying the stack requests manually.
+
+This repo includes a helper script: [scripts/portainer-stack-api-probe.sh](scripts/portainer-stack-api-probe.sh)
+
+### Requirements
+
+- `curl` and `jq`
+- Optional: 1Password CLI (`op`) if you want the script to pull the API key
+
+### Run the probe
+
+Using 1Password (recommended):
+
+```bash
+export PORTAINER_URL='https://portainer.example.com'
+export ENDPOINT_ID='2'
+export STACK_NAME='my-app'
+export STACK_FILE='docker-compose.yml'
+
+# 1Password secret reference to your Portainer access token
+export OP_PORTAINER_API_KEY_REF='op://<vault>/<item>/<field>'
+
+bash scripts/portainer-stack-api-probe.sh
+```
+
+Or with the API key already in your environment:
+
+```bash
+export PORTAINER_URL='https://portainer.example.com'
+export PORTAINER_API_KEY='...'
+export ENDPOINT_ID='2'
+export STACK_NAME='my-app'
+export STACK_FILE='docker-compose.yml'
+
+bash scripts/portainer-stack-api-probe.sh
+```
+
+### What to look for
+
+The script prints:
+
+- `GET /api/status` output (useful to confirm Portainer version)
+- Stack-related routes from `GET /api/swagger.json` (if exposed by your Portainer)
+- A set of `curl` commands for stack create/update you can run manually
+
+If your Portainer no longer supports the older create route:
+
+- Old route (used by this action today): `POST /api/stacks?type=2&method=string&endpointId=...`
+
+You’ll typically see newer alternatives in swagger such as:
+
+- `POST /api/stacks/create/standalone/string?endpointId=...`
+
+Use the swagger output from your instance as the source of truth.
+
 ### Stack Not Found
 
 If the stack doesn't exist, the action will automatically create it. Make sure:

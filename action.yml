@@ -104,6 +104,25 @@ runs:
           echo "$body"
         }
 
+        # Like request_json, but returns two lines:
+        #   line1: HTTP status code
+        #   line2+: response body (may be empty)
+        request_json_raw() {
+          local method="$1"
+          local url="$2"
+          local payload="${3-}"
+
+          local curl_args=(-sS -w "\n%{http_code}" -X "$method" -H "X-API-Key: $PORTAINER_API_KEY")
+          if [ -n "${X_REGISTRY_AUTH:-}" ]; then
+            curl_args+=(-H "X-Registry-Auth: $X_REGISTRY_AUTH")
+          fi
+          if [ -n "${payload}" ]; then
+            curl_args+=(-H "Content-Type: application/json" -d "$payload")
+          fi
+
+          curl "${curl_args[@]}" "$url"
+        }
+
         # Set variables
         PORTAINER_URL="${{ inputs.portainer_url }}"
         PORTAINER_API_KEY="${{ inputs.portainer_api_key }}"
@@ -206,9 +225,31 @@ runs:
             }')
 
           # Create stack
-          CREATE_RESPONSE=$(request_json POST "$PORTAINER_URL/api/stacks?type=$STACK_TYPE&method=string&endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
+          # Portainer 2.33+ commonly uses the /api/stacks/create/standalone/string endpoint.
+          # Older Portainer builds used POST /api/stacks?type=...&method=string&endpointId=...
+          create_url_new="$PORTAINER_URL/api/stacks/create/standalone/string?endpointId=$ENDPOINT_ID"
+          create_url_old="$PORTAINER_URL/api/stacks?type=$STACK_TYPE&method=string&endpointId=$ENDPOINT_ID"
 
-          STACK_ID=$(echo "$CREATE_RESPONSE" | jq -r '.Id // empty')
+          CREATE_RAW=$(request_json_raw POST "$create_url_new" "$PAYLOAD") || exit $?
+          CREATE_BODY="${CREATE_RAW%$'\n'*}"
+          CREATE_CODE="${CREATE_RAW##*$'\n'}"
+
+          if [ "$CREATE_CODE" = "404" ] || [ "$CREATE_CODE" = "405" ]; then
+            echo "Create endpoint not supported ($CREATE_CODE). Falling back to legacy create route..."
+            CREATE_RESPONSE=$(request_json POST "$create_url_old" "$PAYLOAD") || exit $?
+          else
+            if [ "$CREATE_CODE" -lt 200 ] || [ "$CREATE_CODE" -ge 300 ]; then
+              echo "::error::Portainer API request failed (POST $create_url_new)"
+              echo "::error::HTTP $CREATE_CODE"
+              if [ -n "$CREATE_BODY" ]; then
+                echo "::error::Response body: $CREATE_BODY"
+              fi
+              exit 22
+            fi
+            CREATE_RESPONSE="$CREATE_BODY"
+          fi
+
+          STACK_ID=$(echo "$CREATE_RESPONSE" | jq -r '.Id // .ID // .id // empty')
 
           if [ -z "$STACK_ID" ]; then
             echo "::error::Failed to create stack. Response: $CREATE_RESPONSE"
@@ -238,16 +279,9 @@ runs:
               }')
 
             UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
-
-            UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
-            if [ -n "$UPDATED_ID" ]; then
-              echo "Stack redeployed successfully"
-              echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
-              echo "status=redeployed" >> $GITHUB_OUTPUT
-            else
-              echo "::error::Failed to redeploy stack. Response: $UPDATE_RESPONSE"
-              exit 1
-            fi
+            echo "Stack redeployed successfully"
+            echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
+            echo "status=redeployed" >> $GITHUB_OUTPUT
 
           else
             echo "Updating stack..."
@@ -263,16 +297,9 @@ runs:
               }')
 
             UPDATE_RESPONSE=$(request_json PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" "$PAYLOAD") || exit $?
-
-            UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.Id // empty')
-            if [ -n "$UPDATED_ID" ]; then
-              echo "Stack updated successfully"
-              echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
-              echo "status=updated" >> $GITHUB_OUTPUT
-            else
-              echo "::error::Failed to update stack. Response: $UPDATE_RESPONSE"
-              exit 1
-            fi
+            echo "Stack updated successfully"
+            echo "stack_id=$STACK_ID" >> $GITHUB_OUTPUT
+            echo "status=updated" >> $GITHUB_OUTPUT
           fi
         fi
 

@@ -1,11 +1,11 @@
 services:
   app:
-    image: ghcr.io/bignellrp/my-app3:latest
-    container_name: my-app3
+    image: ghcr.io/bignellrp/${{ github.event.repository.name }}:latest
+    container_name: ${{ github.event.repository.name }}
     networks:
       - br1
     ports:
-      - "2379:8000" # This must be updated before deployment
+      - "xxxx:8000" # This must be updated before deployment
     restart: always
     environment:
       - TZ=Europe/London
